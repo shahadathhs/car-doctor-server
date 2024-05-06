@@ -18,7 +18,6 @@ app.use(cookieParser())
 const user = process.env.DB_USER
 const password = process.env.DB_PASS
 
-
 const uri = `mongodb+srv://${user}:${password}@cluster0.ahaugjj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -32,23 +31,25 @@ const client = new MongoClient(uri, {
 
 //middleware
 const logger = async(req, res, next) => {
-  //console.log( 'hostname', req.hostname , 'Url', req.originalUrl)
+  //console.log( 'hostname', req.hostname , 'method', req.method ,'Url', req.originalUrl)
   next()
 }
 
 const verifyToken = async(req, res, next) => {
   const accessToken = req.cookies?.accessToken;
   //console.log("middleware token", accessToken)
+  // token unavailable
   if (!accessToken) {
-    return res.status(401).send({message: "Not allowed"})
+    return res.status(401).send({message: "Unauthorized"})
   }
-  jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET,(error, decoded) => {
+  // token available
+  jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+    //console.log("verifyToken", accessToken)
     if(error){
       console.log(error)
-      return res.status(401).send({message: "Token is not valid"})
+      return res.status(401).send({message: "Invalid unauthorized"})
     }else{
       req.decodedToken = decoded;
-      //console.log("verifyToken", decoded)
       next();
     }
     
@@ -69,8 +70,9 @@ async function run() {
     // auth related post
     app.post("/jwt", async(req, res) => {
       const userEmail = req.body;
-      //console.log(userEmail)//as a object
-      const token = jwt.sign( userEmail, process.env.ACCESS_TOKEN_SECRET , { expiresIn: '1h' });
+      console.log(userEmail)//as a object
+      const token = jwt.sign( userEmail, process.env.ACCESS_TOKEN_SECRET , 
+        { expiresIn: '1h' });
       
       res
         .cookie('accessToken', token, {
@@ -78,11 +80,19 @@ async function run() {
           secure: true,
           sameSite: 'none'
         })
-        .send({success : true})
+        .send({ loginSuccess : true })
+    })
+
+    app.post('/logout', async (req, res) => {
+      const userEmail = req.body;
+      console.log('logging out', userEmail);
+      res
+        .clearCookie('accessToken', { maxAge: 0 })
+        .send({ logoutSuccess: true })
     })
 
     // services related api
-    app.get("/services", async(req, res) => {
+    app.get("/services", logger, async(req, res) => {
       const cursor = servicesCollection.find();
       const result = await cursor.toArray();
       res.send(result);
@@ -98,10 +108,8 @@ async function run() {
 
     //checkOut related api
     app.get("/checkOut", logger, verifyToken,  async(req, res) => {
-      //console.log(req.query.email);
-      //console.log(req.cookies)
-      console.log(req.cookies.accessToken);
-      console.log('decodedToken' ,req.decodedToken)
+      console.log("requestedData/userInfo", req.query);
+      console.log('decodedToken/tokenOwnerInfo' ,req.decodedToken)
       if(req.query.email != req.decodedToken.email){
         return res.status(403).send({message : "forbidden"})
       }
